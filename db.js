@@ -6,22 +6,22 @@ const pool = mysql.createPool({
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 3306,
+    port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    connectTimeout: 10000, // 10 ሰከንድ ካለፈው ኤረር እንዲያሳይ
     ssl: {
         rejectUnauthorized: false
     }
 });
 
+// ቴብሎች ከሌሉ አውቶማቲክ የሚፈጥር Function
 async function initDB() {
     try {
-        console.log('🔄 Connecting to MySQL Database...');
         const connection = await pool.getConnection();
         console.log('✅ MySQL Database successfully connected!');
 
+        // 1. Users Table
         await connection.query(`
             CREATE TABLE IF NOT EXISTS users (
                 telegram_id BIGINT PRIMARY KEY,
@@ -31,6 +31,7 @@ async function initDB() {
             );
         `);
 
+        // 2. Properties Table
         await connection.query(`
             CREATE TABLE IF NOT EXISTS properties (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -62,7 +63,7 @@ async function initDB() {
         console.log('✅ Database tables initialized successfully!');
         connection.release();
     } catch (error) {
-        console.error('❌ Database connection/initialization error:', error.message);
+        console.error('❌ Database initialization error:', error);
     }
 }
 
