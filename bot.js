@@ -77,8 +77,6 @@ async function getUserLang(telegramId) {
 // /start command
 bot.command('start', async (ctx) => {
     const telegramId = ctx.from.id;
-
-    // /start ሲባል የቆየ ምዝገባ ወይም ሴሽን ካለ ሙሉ በሙሉ ያጠፋዋል
     userSessions.delete(telegramId);
 
     const fullName = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim();
@@ -441,10 +439,9 @@ bot.callbackQuery(['fuel_petrol', 'fuel_diesel', 'fuel_ev'], async (ctx) => {
     await ctx.reply('እባክዎ መኪናው የሄደውን ኪሎሜትር ያስገቡ (ምሳሌ፦ 45000)፡');
 });
 
-// ==================== 5. GLOBAL MESSAGE LISTENER ====================
+// ==================== GLOBAL MESSAGE LISTENER ====================
 
 bot.on('message', async (ctx, next) => {
-    // /start ከተላከ ሴሽኑን አፅድቆ ቀጥታ ለኮማንድ ሃንድለሩ ያስረክባል
     if (ctx.message.text === '/start') {
         userSessions.delete(ctx.from.id);
         return next();
@@ -485,18 +482,24 @@ bot.on('message', async (ctx, next) => {
     // --- Dynamic Search Handlers ---
     if (session.search_step === 'AWAITING_MAX_PRICE' && ctx.message.text) {
         const maxPrice = parseFloat(ctx.message.text.replace(/,/g, ''));
+        if (isNaN(maxPrice)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ ቁጥር ብቻ ያስገቡ (ምሳሌ፦ 5000000)፡');
+        }
+
         delete session.search_step;
         userSessions.set(ctx.from.id, session);
-
         executeSearch(ctx, 'SELECT * FROM properties WHERE category = ? AND price <= ? ORDER BY price ASC LIMIT 10', [session.search_category, maxPrice]);
         return;
     }
 
     if (session.search_step === 'AWAITING_ROOM_COUNT' && ctx.message.text) {
         const rooms = parseInt(ctx.message.text);
+        if (isNaN(rooms)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ ቁጥር ብቻ ያስገቡ (ምሳሌ፦ 2)፡');
+        }
+
         delete session.search_step;
         userSessions.set(ctx.from.id, session);
-
         executeSearch(ctx, 'SELECT * FROM properties WHERE category = "house" AND bedrooms = ? ORDER BY created_at DESC LIMIT 10', [rooms]);
         return;
     }
@@ -512,7 +515,9 @@ bot.on('message', async (ctx, next) => {
 
     if (session.step === 'AWAITING_PRICE' && ctx.message.text) {
         const price = parseFloat(ctx.message.text.replace(/,/g, ''));
-        if (isNaN(price)) return ctx.reply('እባክዎ ትክክለኛ ቁጥር ያስገቡ!');
+        if (isNaN(price)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የዋጋ ቁጥር ብቻ ያስገቡ (ምሳሌ፦ 2500000)፡');
+        }
 
         session.price = price;
 
@@ -530,28 +535,48 @@ bot.on('message', async (ctx, next) => {
     // --- HOUSE SPECIFIC STEPS ---
 
     if (session.step === 'AWAITING_BEDROOMS' && ctx.message.text) {
-        session.bedrooms = parseInt(ctx.message.text) || 0;
+        const bedrooms = parseInt(ctx.message.text);
+        if (isNaN(bedrooms)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የመኝታ ክፍል ቁጥር ያስገቡ (ምሳሌ፦ 3)፡');
+        }
+
+        session.bedrooms = bedrooms;
         session.step = 'AWAITING_BATHROOMS';
         userSessions.set(ctx.from.id, session);
         return ctx.reply('እባክዎ የመጸዳጃ ቤት (Bathrooms) ብዛት ያስገቡ (ምሳሌ፦ 2)፡');
     }
 
     if (session.step === 'AWAITING_BATHROOMS' && ctx.message.text) {
-        session.bathrooms = parseInt(ctx.message.text) || 0;
+        const bathrooms = parseInt(ctx.message.text);
+        if (isNaN(bathrooms)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የመጸዳጃ ቤት ቁጥር ያስገቡ (ምሳሌ፦ 2)፡');
+        }
+
+        session.bathrooms = bathrooms;
         session.step = 'AWAITING_LIVING_ROOMS';
         userSessions.set(ctx.from.id, session);
         return ctx.reply('እባክዎ የሳሎን (Living Rooms) ብዛት ያስገቡ (ምሳሌ፦ 1)፡');
     }
 
     if (session.step === 'AWAITING_LIVING_ROOMS' && ctx.message.text) {
-        session.living_rooms = parseInt(ctx.message.text) || 0;
+        const livingRooms = parseInt(ctx.message.text);
+        if (isNaN(livingRooms)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የሳሎን ቁጥር ያስገቡ (ምሳሌ፦ 1)፡');
+        }
+
+        session.living_rooms = livingRooms;
         session.step = 'AWAITING_AREA';
         userSessions.set(ctx.from.id, session);
         return ctx.reply('እባክዎ የቤቱን ስፋት በካሬ ሜትር ያስገቡ (ምሳሌ፦ 150)፡');
     }
 
     if (session.step === 'AWAITING_AREA' && ctx.message.text) {
-        session.area_sqm = parseFloat(ctx.message.text) || 0;
+        const area = parseFloat(ctx.message.text);
+        if (isNaN(area)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የካሬ ሜትር ቁጥር ያስገቡ (ምሳሌ፦ 150)፡');
+        }
+
+        session.area_sqm = area;
         session.step = 'AWAITING_FURNISHED';
         userSessions.set(ctx.from.id, session);
 
@@ -579,7 +604,12 @@ bot.on('message', async (ctx, next) => {
     }
 
     if (session.step === 'AWAITING_YEAR' && ctx.message.text) {
-        session.year_built = parseInt(ctx.message.text) || null;
+        const year = parseInt(ctx.message.text);
+        if (isNaN(year) || year < 1900 || year > 2027) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የምርት ዓመተ ምህረት በቁጥር ያስገቡ (ምሳሌ፦ 2022)፡');
+        }
+
+        session.year_built = year;
         session.step = 'AWAITING_TRANSMISSION';
         userSessions.set(ctx.from.id, session);
 
@@ -591,7 +621,12 @@ bot.on('message', async (ctx, next) => {
     }
 
     if (session.step === 'AWAITING_MILEAGE' && ctx.message.text) {
-        session.mileage = parseInt(ctx.message.text.replace(/,/g, '')) || 0;
+        const mileage = parseInt(ctx.message.text.replace(/,/g, ''));
+        if (isNaN(mileage)) {
+            return ctx.reply('⚠️ እባክዎ ትክክለኛ የኪሎሜትር ቁጥር ያስገቡ (ምሳሌ፦ 45000)፡');
+        }
+
+        session.mileage = mileage;
         session.step = 'AWAITING_LOCATION';
         userSessions.set(ctx.from.id, session);
         return ctx.reply('እባክዎ የመኪናውን አድራሻ/ቦታ ያስገቡ (ምሳሌ፦ ቦሌ, አዲስ አበባ)፡');
@@ -698,7 +733,7 @@ bot.on('message', async (ctx, next) => {
     return next();
 });
 
-// ==================== BOT START (ALWAYS AT THE VERY END) ====================
+// ==================== BOT START ====================
 bot.start({
     onStart: (botInfo) => console.log(`🚀 Broker Bot @${botInfo.username} running...`)
 });
