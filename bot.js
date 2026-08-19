@@ -9,7 +9,7 @@ const userSessions = new Map();
 // Admin ID ከ .env ፋይል ይነበባል
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : null;
 
-// ==================== RENDER DUMMY HTTP SERVER (PORT BINDING FIX) ====================
+// ==================== RENDER DUMMY HTTP SERVER ====================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -72,6 +72,8 @@ async function getUserLang(telegramId) {
     }
 }
 
+// ==================== COMMANDS & HEARS ====================
+
 // /start command
 bot.command('start', async (ctx) => {
     const telegramId = ctx.from.id;
@@ -99,8 +101,7 @@ bot.command('start', async (ctx) => {
     }
 });
 
-// ==================== 0. ADMIN PANEL FEATURES ====================
-
+// Admin Command
 bot.command('admin', async (ctx) => {
     if (ADMIN_ID && ctx.from.id !== ADMIN_ID) {
         return ctx.reply('⚠️ ይህ ክፍል ለአስተዳዳሪዎች ብቻ የተፈቀደ ነው!');
@@ -126,6 +127,82 @@ bot.command('admin', async (ctx) => {
         await ctx.reply('❌ የአድሚን መረጃዎችን በማምጣት ላይ ስህተት ተፈጥሯል።');
     }
 });
+
+// Multi-Language Switcher
+bot.hears(['🌐 Change Language / ቋንቋ ቀይር', '🌐 Change Language', '🌐 ቋንቋ ቀይር', i18n.am.btn_lang, i18n.en.btn_lang], async (ctx) => {
+    const langMenu = new InlineKeyboard()
+        .text('🇪🇹 አማርኛ', 'set_lang_am')
+        .text('🇬🇧 English', 'set_lang_en');
+
+    await ctx.reply('Please select your preferred language / እባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡', { reply_markup: langMenu });
+});
+
+bot.callbackQuery(['set_lang_am', 'set_lang_en'], async (ctx) => {
+    const newLang = ctx.callbackQuery.data === 'set_lang_am' ? 'am' : 'en';
+    const telegramId = ctx.from.id;
+
+    await pool.execute('UPDATE users SET language = ? WHERE telegram_id = ?', [newLang, telegramId]);
+    await ctx.answerCallbackQuery();
+
+    const mainMenu = new Keyboard()
+        .text(i18n[newLang].btn_search)
+        .row()
+        .text(i18n[newLang].btn_add)
+        .text(i18n[newLang].btn_profile)
+        .row()
+        .text(i18n[newLang].btn_lang)
+        .resized();
+
+    await ctx.reply(i18n[newLang].lang_updated, { reply_markup: mainMenu });
+});
+
+// Profile Handler
+bot.hears(['👤 አካውንቴ / ፕሮፋይል', '👤 My Profile', i18n.am.btn_profile, i18n.en.btn_profile], async (ctx) => {
+    const telegramId = ctx.from.id;
+    const lang = await getUserLang(telegramId);
+
+    try {
+        const [userRows] = await pool.execute('SELECT * FROM users WHERE telegram_id = ?', [telegramId]);
+        const [propRows] = await pool.execute('SELECT COUNT(*) as total FROM properties WHERE user_id = ?', [telegramId]);
+
+        const user = userRows[0];
+        const totalListings = propRows[0] ? propRows[0].total : 0;
+
+        const profileText = `👤 <b>${lang === 'am' ? 'የተጠቃሚ ፕሮፋይል' : 'User Profile'}</b>\n\n` +
+            `👤 <b>${lang === 'am' ? 'ስም' : 'Name'}:</b> ${user ? user.full_name : ctx.from.first_name}\n` +
+            `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
+            `📦 <b>${lang === 'am' ? 'የተመዘገቡ ንብረቶች ብዛት' : 'Total Listings'}:</b> ${totalListings}\n`;
+
+        const profileMenu = new InlineKeyboard().text(i18n[lang].my_props, 'my_properties');
+
+        await ctx.reply(profileText, { parse_mode: 'HTML', reply_markup: profileMenu });
+    } catch (error) {
+        console.error('Error fetching profile:', error);
+    }
+});
+
+// Add Listing Flow Trigger
+bot.hears(['➕ ንብረት መመዝገብ (ለደላሎች)', '➕ Add Listing (Brokers)', i18n.am.btn_add, i18n.en.btn_add], async (ctx) => {
+    userSessions.set(ctx.from.id, { step: 'SELECT_CATEGORY' });
+
+    const categoryMenu = new InlineKeyboard()
+        .text('🏠 House / ቤት', 'cat_house')
+        .text('🚗 Car / መኪና', 'cat_car');
+
+    await ctx.reply('እባክዎ የሚመዘግቡትን ንብረት ምድብ ይምረጡ / Please select category:', { reply_markup: categoryMenu });
+});
+
+// Search Trigger
+bot.hears(['🏠 ቤቶች / 🚗 መኪኖች ፈልግ', '🏠 Search Houses / 🚗 Cars', i18n.am.btn_search, i18n.en.btn_search], async (ctx) => {
+    const lang = await getUserLang(ctx.from.id);
+    const searchMenu = new InlineKeyboard()
+        .text('🏠 Houses / ቤቶች', 'search_cat_house')
+        .text('🚗 Cars / መኪኖች', 'search_cat_car');
+
+    await ctx.reply(i18n[lang].search_type, { reply_markup: searchMenu });
+});
+
+// ==================== CALLBACK QUERIES ====================
 
 bot.callbackQuery('admin_stats', async (ctx) => {
     if (ADMIN_ID && ctx.from.id !== ADMIN_ID) return ctx.answerCallbackQuery('⚠️ ያልተፈቀደ ሙከራ!');
@@ -155,61 +232,6 @@ bot.callbackQuery('admin_broadcast', async (ctx) => {
     await ctx.answerCallbackQuery();
     userSessions.set(ctx.from.id, { step: 'AWAITING_BROADCAST_TEXT' });
     await ctx.reply('📢 እባክዎ ለሁሉም ተጠቃሚዎች የሚላከውን ማስታወቂያ/ጽሁፍ ያስገቡ፦');
-});
-
-// ==================== 1. Multi-Language Switcher ====================
-
-bot.hears(['🌐 Change Language / ቋንቋ ቀይር', '🌐 Change Language', '🌐 ቋንቋ ቀይር'], async (ctx) => {
-    const langMenu = new InlineKeyboard()
-        .text('🇪🇹 አማርኛ', 'set_lang_am')
-        .text('🇬🇧 English', 'set_lang_en');
-
-    await ctx.reply('Please select your preferred language / እባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡', { reply_markup: langMenu });
-});
-
-bot.callbackQuery(['set_lang_am', 'set_lang_en'], async (ctx) => {
-    const newLang = ctx.callbackQuery.data === 'set_lang_am' ? 'am' : 'en';
-    const telegramId = ctx.from.id;
-
-    await pool.execute('UPDATE users SET language = ? WHERE telegram_id = ?', [newLang, telegramId]);
-    await ctx.answerCallbackQuery();
-
-    const mainMenu = new Keyboard()
-        .text(i18n[newLang].btn_search)
-        .row()
-        .text(i18n[newLang].btn_add)
-        .text(i18n[newLang].btn_profile)
-        .row()
-        .text(i18n[newLang].btn_lang)
-        .resized();
-
-    await ctx.reply(i18n[newLang].lang_updated, { reply_markup: mainMenu });
-});
-
-// ==================== 2. አካውንቴ / ፕሮፋይል ====================
-
-bot.hears(['👤 አካውንቴ / ፕሮፋይል', '👤 My Profile'], async (ctx) => {
-    const telegramId = ctx.from.id;
-    const lang = await getUserLang(telegramId);
-
-    try {
-        const [userRows] = await pool.execute('SELECT * FROM users WHERE telegram_id = ?', [telegramId]);
-        const [propRows] = await pool.execute('SELECT COUNT(*) as total FROM properties WHERE user_id = ?', [telegramId]);
-
-        const user = userRows[0];
-        const totalListings = propRows[0].total;
-
-        const profileText = `👤 <b>${lang === 'am' ? 'የተጠቃሚ ፕሮፋይል' : 'User Profile'}</b>\n\n` +
-            `👤 <b>${lang === 'am' ? 'ስም' : 'Name'}:</b> ${user ? user.full_name : ctx.from.first_name}\n` +
-            `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
-            `📦 <b>${lang === 'am' ? 'የተመዘገቡ ንብረቶች ብዛት' : 'Total Listings'}:</b> ${totalListings}\n`;
-
-        const profileMenu = new InlineKeyboard().text(i18n[lang].my_props, 'my_properties');
-
-        await ctx.reply(profileText, { parse_mode: 'HTML', reply_markup: profileMenu });
-    } catch (error) {
-        console.error('Error fetching profile:', error);
-    }
 });
 
 bot.callbackQuery('my_properties', async (ctx) => {
@@ -253,17 +275,6 @@ bot.callbackQuery(/^delete_(\d+)$/, async (ctx) => {
     } catch (error) {
         console.error('Error deleting property:', error);
     }
-});
-
-// ==================== 3. Dynamic Search & Filtering ====================
-
-bot.hears(['🏠 ቤቶች / 🚗 መኪኖች ፈልግ', '🏠 Search Houses / 🚗 Cars'], async (ctx) => {
-    const lang = await getUserLang(ctx.from.id);
-    const searchMenu = new InlineKeyboard()
-        .text('🏠 Houses / ቤቶች', 'search_cat_house')
-        .text('🚗 Cars / መኪኖች', 'search_cat_car');
-
-    await ctx.reply(i18n[lang].search_type, { reply_markup: searchMenu });
 });
 
 bot.callbackQuery(['search_cat_house', 'search_cat_car'], async (ctx) => {
@@ -348,18 +359,6 @@ async function executeSearch(ctx, query, params) {
     }
 }
 
-// ==================== 4. ንብረት መመዝገብ (ADD LISTING FLOW) ====================
-
-bot.hears(['➕ ንብረት መመዝገብ (ለደላሎች)', '➕ Add Listing (Brokers)'], async (ctx) => {
-    userSessions.set(ctx.from.id, { step: 'SELECT_CATEGORY' });
-
-    const categoryMenu = new InlineKeyboard()
-        .text('🏠 House / ቤት', 'cat_house')
-        .text('🚗 Car / መኪና', 'cat_car');
-
-    await ctx.reply('እባክዎ የሚመዘግቡትን ንብረት ምድብ ይምረጡ / Please select category:', { reply_markup: categoryMenu });
-});
-
 bot.callbackQuery(['cat_house', 'cat_car'], async (ctx) => {
     const category = ctx.callbackQuery.data === 'cat_house' ? 'house' : 'car';
     const session = userSessions.get(ctx.from.id) || {};
@@ -379,7 +378,7 @@ bot.callbackQuery(['cat_house', 'cat_car'], async (ctx) => {
 bot.callbackQuery(['type_sale', 'type_rent'], async (ctx) => {
     const type = ctx.callbackQuery.data === 'type_sale' ? 'sale' : 'rent';
     const session = userSessions.get(ctx.from.id);
-    if (!session) return;
+    if (!session) return ctx.answerCallbackQuery();
 
     session.type = type;
     session.step = 'AWAITING_TITLE';
@@ -394,10 +393,9 @@ bot.callbackQuery(['type_sale', 'type_rent'], async (ctx) => {
     await ctx.reply(promptMessage);
 });
 
-// Inline Selection Callbacks
 bot.callbackQuery(['furn_yes', 'furn_no'], async (ctx) => {
     const session = userSessions.get(ctx.from.id);
-    if (!session) return;
+    if (!session) return ctx.answerCallbackQuery();
 
     session.furnished_status = ctx.callbackQuery.data === 'furn_yes' ? 'Furnished' : 'Unfurnished';
     session.step = 'AWAITING_LOCATION';
@@ -409,7 +407,7 @@ bot.callbackQuery(['furn_yes', 'furn_no'], async (ctx) => {
 
 bot.callbackQuery(['trans_auto', 'trans_manual'], async (ctx) => {
     const session = userSessions.get(ctx.from.id);
-    if (!session) return;
+    if (!session) return ctx.answerCallbackQuery();
 
     session.transmission = ctx.callbackQuery.data === 'trans_auto' ? 'Automatic' : 'Manual';
     session.step = 'AWAITING_FUEL_TYPE';
@@ -428,7 +426,7 @@ bot.callbackQuery(['trans_auto', 'trans_manual'], async (ctx) => {
 
 bot.callbackQuery(['fuel_petrol', 'fuel_diesel', 'fuel_ev'], async (ctx) => {
     const session = userSessions.get(ctx.from.id);
-    if (!session) return;
+    if (!session) return ctx.answerCallbackQuery();
 
     const mapFuel = { fuel_petrol: 'Petrol', fuel_diesel: 'Diesel', fuel_ev: 'Electric' };
     session.fuel_type = mapFuel[ctx.callbackQuery.data];
@@ -463,7 +461,7 @@ bot.on('message', async (ctx, next) => {
                     await bot.api.sendMessage(u.telegram_id, `📢 <b>ማስታወቂያ / Announcement</b>\n\n${broadcastMsg}`, { parse_mode: 'HTML' });
                     successCount++;
                 } catch (e) {
-                    // User blocked bot or deleted chat
+                    // User blocked bot
                 }
             }
 
@@ -690,6 +688,7 @@ bot.on('message', async (ctx, next) => {
     return next();
 });
 
+// ==================== BOT START (ALWAYS AT THE VERY END) ====================
 bot.start({
     onStart: (botInfo) => console.log(`🚀 Broker Bot @${botInfo.username} running...`)
 });
