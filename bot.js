@@ -9,14 +9,27 @@ const userSessions = new Map();
 // Admin ID ከ .env ፋይል ይነበባል
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : null;
 
-// ==================== RENDER DUMMY HTTP SERVER ====================
+// ==================== RENDER DUMMY HTTP SERVER & KEEP-ALIVE ====================
 const PORT = process.env.PORT || 3000;
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Broker Bot is active and healthy!\n');
-}).listen(PORT, () => {
-    console.log(`🌐 Dummy HTTP server running on port ${PORT}`);
+}).listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Dummy HTTP server bound to 0.0.0.0:${PORT}`);
 });
+
+// ቦቱ Render Free Tier ላይ እንዳይዘጋ በየ 10 ደቂቃው እራሱን Ping ያደርጋል
+if (RENDER_EXTERNAL_URL) {
+    setInterval(() => {
+        http.get(RENDER_EXTERNAL_URL, (res) => {
+            console.log(`📡 Self-ping successful: Status ${res.statusCode}`);
+        }).on('error', (err) => {
+            console.error('⚠️ Self-ping error:', err.message);
+        });
+    }, 10 * 60 * 1000);
+}
 
 // ==================== ቋንቋዎች (TRANSLATIONS) ====================
 const i18n = {
