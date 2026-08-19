@@ -77,6 +77,10 @@ async function getUserLang(telegramId) {
 // /start command
 bot.command('start', async (ctx) => {
     const telegramId = ctx.from.id;
+
+    // /start ሲባል የቆየ ምዝገባ ወይም ሴሽን ካለ ሙሉ በሙሉ ያጠፋዋል
+    userSessions.delete(telegramId);
+
     const fullName = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim();
     const lang = await getUserLang(telegramId);
 
@@ -440,6 +444,12 @@ bot.callbackQuery(['fuel_petrol', 'fuel_diesel', 'fuel_ev'], async (ctx) => {
 // ==================== 5. GLOBAL MESSAGE LISTENER ====================
 
 bot.on('message', async (ctx, next) => {
+    // /start ከተላከ ሴሽኑን አፅድቆ ቀጥታ ለኮማንድ ሃንድለሩ ያስረክባል
+    if (ctx.message.text === '/start') {
+        userSessions.delete(ctx.from.id);
+        return next();
+    }
+
     const session = userSessions.get(ctx.from.id);
     if (!session) return next();
 
